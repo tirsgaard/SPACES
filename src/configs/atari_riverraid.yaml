@@ -9,6 +9,7 @@ logdir: '../output/logs'
 checkpointdir: '../output/checkpoints'
 evaldir: '../output/eval'
 
+<<<<<<< HEAD
 dataset: 'Riverraid'
 dataset_roots:
   OBJ3D_SMALL: '../data/OBJ3D_SMALL'
@@ -17,6 +18,13 @@ dataset_roots:
   asteroids: '../data/asteroids-v0'
   SpaceInvaders: '../data/SpaceInvaders-v0'
   Riverraid: '../data/riverraid-v0'
+=======
+dataset: 'ATARI'
+dataset_roots:
+  OBJ3D_SMALL: '../data/OBJ3D_SMALL'
+  OBJ3D_LARGE: '../data/OBJ3D_LARGE'
+  ATARI: '../data/ATARI'
+>>>>>>> refs/remotes/origin/master
 
 
 train:
@@ -64,3 +72,20 @@ arch:
 
   # Turn off boundary loss
   boundary_loss: false
+<<<<<<< HEAD
+=======
+gamelist: [
+#    'Atlantis-v0',
+#    'Asterix-v0',
+#    'Carnival-v0',
+#    'DoubleDunk-v0',
+#    'Kangaroo-v0',
+#    'MontezumaRevenge-v0',
+#    'MsPacman-v0',
+#    'Pooyan-v0',
+#    'Qbert-v0',
+#    'SpaceInvaders-v0',
+    'Riverraid-v0',
+    ]
+
+>>>>>>> refs/remotes/origin/master

@@ -1,9 +1,13 @@
 from .atari import Atari
 from .obj3d import Obj3D
+<<<<<<< HEAD
 from .own_atari import own_atari
 from .atari_from_numpy import atari_from_numpy
 from torch.utils.data import DataLoader
 import torch
+=======
+from torch.utils.data import DataLoader
+>>>>>>> refs/remotes/origin/master
 
 
 __all__ = ['get_dataset', 'get_dataloader']
@@ -17,6 +21,7 @@ def get_dataset(cfg, mode):
         return Obj3D(cfg.dataset_roots.OBJ3D_SMALL, mode)
     elif cfg.dataset == 'OBJ3D_LARGE':
         return Obj3D(cfg.dataset_roots.OBJ3D_LARGE, mode)
+<<<<<<< HEAD
     elif cfg.dataset == 'asteroids':
         return own_atari(cfg.dataset_roots.asteroids, mode)
     elif cfg.dataset == 'SpaceInvaders':
@@ -25,6 +30,8 @@ def get_dataset(cfg, mode):
         return own_atari(cfg.dataset_roots.Riverraid, mode)
     elif cfg.dataset == 'Riverraid_seq':
         return atari_from_numpy(cfg.dataset_roots.Riverraid_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
+=======
+>>>>>>> refs/remotes/origin/master
 
 def get_dataloader(cfg, mode):
     assert mode in ['train', 'val', 'test']
@@ -34,6 +41,7 @@ def get_dataloader(cfg, mode):
     num_workers = getattr(cfg, mode).num_workers
     
     dataset = get_dataset(cfg, mode)
+<<<<<<< HEAD
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, collate_fn = custom_collate)
     
     return dataloader
@@ -73,3 +81,9 @@ def custom_collate(batched_seq):
     
     batched_seq = torch.squeeze(batched_seq,1)
     return batched_seq
+=======
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    
+    return dataloader
+    
+>>>>>>> refs/remotes/origin/master

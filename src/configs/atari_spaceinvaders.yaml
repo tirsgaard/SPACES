@@ -6,6 +6,7 @@ parallel: false
 device_ids: [0, 1]
 device: 'cuda:0'
 logdir: '../output/logs'
+<<<<<<< HEAD
 checkpointdir: '/home/rasmus/DTU/VAE_RL/SPACE/output/checkpoints'
 evaldir: '../output/eval'
 
@@ -20,6 +21,20 @@ dataset_roots:
 
 train:
   batch_size: 2
+=======
+checkpointdir: '../output/checkpoints'
+evaldir: '../output/eval'
+
+dataset: 'ATARI'
+dataset_roots:
+  OBJ3D_SMALL: '../data/OBJ3D_SMALL'
+  OBJ3D_LARGE: '../data/OBJ3D_LARGE'
+  ATARI: '../data/ATARI'
+
+
+train:
+  batch_size: 12
+>>>>>>> refs/remotes/origin/master
   max_epochs: 1000
   max_steps: 100000
   print_every: 500
@@ -36,6 +51,7 @@ train:
       optim: 'Adam'
       lr: 1e-3
 
+<<<<<<< HEAD
 eval:
   checkpoint: 'best'
   metric: ap_avg
@@ -55,6 +71,8 @@ eval_cfg:
       4
 
 
+=======
+>>>>>>> refs/remotes/origin/master
 arch:
   G: 16
   fg_sigma: 0.20

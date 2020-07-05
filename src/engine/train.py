@@ -64,6 +64,10 @@ def train(cfg):
     
         start = time.perf_counter()
         for i, data in enumerate(trainloader):
+<<<<<<< HEAD
+=======
+        
+>>>>>>> refs/remotes/origin/master
             end = time.perf_counter()
             data_time = end - start
             start = end

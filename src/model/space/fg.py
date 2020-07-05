@@ -116,6 +116,10 @@ class SpaceFg(nn.Module):
         
         # (B*G*G, D)
         z_what, z_what_post = self.z_what_net(x_att)
+<<<<<<< HEAD
+=======
+        
+>>>>>>> refs/remotes/origin/master
         # Decode z_what into small reconstructed glimpses
         # All (B*G*G, 3, H, W)
         o_att, alpha_att = self.glimpse_dec(z_what)
@@ -255,6 +259,7 @@ class SpaceFg(nn.Module):
             'kl_z_where': kl_z_where,
         }
         return fg_likelihood, y_nobg, alpha_map, kl, boundary_loss, log
+<<<<<<< HEAD
     
     
 class SpaceFg_atari(nn.Module):
@@ -373,6 +378,8 @@ class SpaceFg_atari(nn.Module):
                                for x in [z_what_post.mean, z_what_post.stddev]])
         
         return z_pres, z_depth, z_scale, z_shift, z_where, z_what
+=======
+>>>>>>> refs/remotes/origin/master
 
 
 class ImgEncoderFg(nn.Module):

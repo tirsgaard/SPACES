@@ -208,6 +208,7 @@ class SpaceBg(nn.Module):
         return new_masks
             
 
+<<<<<<< HEAD
         
 class SpaceBg_atari(nn.Module):
     
@@ -344,6 +345,8 @@ class SpaceBg_atari(nn.Module):
         new_masks = torch.stack(new_masks, dim=1)
     
         return new_masks
+=======
+>>>>>>> refs/remotes/origin/master
 
 class Flatten(nn.Module):
     def forward(self, x):
