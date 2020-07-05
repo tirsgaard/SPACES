@@ -22,12 +22,16 @@ cfg = CfgNode({
     'demodir': '../output/demo/',
     
     # Dataset to use
-    'dataset': 'OBJ3D_LARGE',
+    'dataset': 'Riverraid_seq',
     
     'dataset_roots': {
         'ATARI': '../data/ATARI',
         'OBJ3D_LARGE': '../data/OBJ3D_LARGE',
         'OBJ3D_SMALL': '../data/OBJ3D_SMALL',
+        'asteroids': '../data/asteroids-v0',
+        'SpaceInvaders': '../data/SpaceInvaders-v0',
+        'Riverraid': '../data/riverraid-v0',
+        'Riverraid_seq': '../data/Riverraid_seq',
     },
     
     # For Atari
@@ -50,7 +54,10 @@ cfg = CfgNode({
         'batch_size': 16,
         'max_epochs': 1000,
         'max_steps': 1000000,
-        
+        'seq_length': 4,
+        'start_seq_length': 2,
+        'end_seq_length': 10,
+        'increase_seq': 5000, # Number of steps between 
         'num_workers': 4,
         # Gradient clipping. If 0.0 we don't clip
         'clip_norm': 1.0,

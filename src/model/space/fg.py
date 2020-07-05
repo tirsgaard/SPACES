@@ -116,7 +116,6 @@ class SpaceFg(nn.Module):
         
         # (B*G*G, D)
         z_what, z_what_post = self.z_what_net(x_att)
-        
         # Decode z_what into small reconstructed glimpses
         # All (B*G*G, 3, H, W)
         o_att, alpha_att = self.glimpse_dec(z_what)
@@ -256,6 +255,124 @@ class SpaceFg(nn.Module):
             'kl_z_where': kl_z_where,
         }
         return fg_likelihood, y_nobg, alpha_map, kl, boundary_loss, log
+    
+    
+class SpaceFg_atari(nn.Module):
+    def __init__(self):
+        nn.Module.__init__(self)
+        
+        self.img_encoder = ImgEncoderFg()
+        self.z_what_net = ZWhatEnc()
+        self.glimpse_dec = GlimpseDec()
+        # This is what is really used
+        self.boundary_kernel = get_boundary_kernel_new(kernel_size=32, boundary_width=6)
+        
+        self.fg_sigma = arch.fg_sigma
+        # I register many things as buffer but this is not really necessary.
+        # Temperature for gumbel-softmax
+        self.register_buffer('tau', torch.tensor(arch.tau_start_value))
+        
+        # Priors
+        # Some are buffer and some are not. This is stupid. But for compatibility I have to do so.
+        self.register_buffer('prior_z_pres_prob', torch.tensor(arch.z_pres_start_value))
+        self.register_buffer('prior_what_mean', torch.zeros(1))
+        self.register_buffer('prior_what_std', torch.ones(1))
+        self.register_buffer('prior_depth_mean', torch.zeros(1))
+        self.register_buffer('prior_depth_std', torch.ones(1))
+        self.prior_scale_mean_new = torch.tensor(arch.z_scale_mean_start_value)
+        self.prior_scale_std_new = torch.tensor(arch.z_scale_std_value)
+        self.prior_shift_mean_new = torch.tensor(0.)
+        self.prior_shift_std_new = torch.tensor(1.)
+        # self.register_buffer('prior_scale_mean_new', torch.tensor(arch.z_scale_mean_start_value))
+        # self.register_buffer('prior_scale_std_new', torch.tensor(arch.z_scale_std_value))
+        # self.register_buffer('prior_shift_mean_new', torch.tensor(0.))
+        # self.register_buffer('prior_shift_std_new', torch.tensor(1.))
+        
+        # TODO: These are placeholders for loading old checkpoints. No longer used
+        self.boundary_filter = get_boundary_kernel(sigma=20)
+        self.register_buffer('prior_scale_mean',
+                             torch.tensor([arch.z_scale_mean_start_value] * 2).view((arch.z_where_scale_dim), 1, 1))
+        self.register_buffer('prior_scale_std',
+                             torch.tensor([arch.z_scale_std_value] * 2).view((arch.z_where_scale_dim), 1, 1))
+        self.register_buffer('prior_shift_mean',
+                             torch.tensor([0., 0.]).view((arch.z_where_shift_dim), 1, 1))
+        self.register_buffer('prior_shift_std',
+                             torch.tensor([1., 1.]).view((arch.z_where_shift_dim), 1, 1))
+    
+    @property
+    def z_what_prior(self):
+        return Normal(self.prior_what_mean, self.prior_what_std)
+    
+    @property
+    def z_depth_prior(self):
+        return Normal(self.prior_depth_mean, self.prior_depth_std)
+    
+    @property
+    def z_scale_prior(self):
+        return Normal(self.prior_scale_mean_new, self.prior_scale_std_new)
+    
+    @property
+    def z_shift_prior(self):
+        return Normal(self.prior_shift_mean_new, self.prior_shift_std_new)
+    
+    def anneal(self, global_step):
+        """
+        Update everything
+
+        :param global_step: global step (training)
+        :return:
+        """
+
+        self.prior_z_pres_prob = linear_annealing(self.prior_z_pres_prob.device, global_step,
+                                                  arch.z_pres_start_step, arch.z_pres_end_step,
+                                                  arch.z_pres_start_value, arch.z_pres_end_value)
+        self.prior_scale_mean_new = linear_annealing(self.prior_z_pres_prob.device, global_step,
+                                                arch.z_scale_mean_start_step, arch.z_scale_mean_end_step,
+                                                arch.z_scale_mean_start_value, arch.z_scale_mean_end_value)
+        self.tau = linear_annealing(self.tau.device, global_step,
+                                    arch.tau_start_step, arch.tau_end_step,
+                                    arch.tau_start_value, arch.tau_end_value)
+    
+    def forward(self, x, globel_step):
+        """
+        Forward pass
+
+        :param x: (B, 3, H, W)
+        :param globel_step: global step (training)
+        :return:
+            fg_likelihood: (B, 3, H, W)
+            y_nobg: (B, 3, H, W), foreground reconstruction
+            alpha_map: (B, 1, H, W)
+            kl: (B,) total foreground kl
+            boundary_loss: (B,)
+            log: a dictionary containing anything we need for visualization
+        """
+        B = x.size(0)
+        # if globel_step:
+        self.anneal(globel_step)
+        
+        # Everything is (B, G*G, D), where D varies
+        z_pres, z_depth, z_scale, z_shift, z_where, \
+        z_pres_logits, z_depth_post, z_scale_post, z_shift_post = self.img_encoder(x, self.tau)
+        
+        # (B, 3, H, W) -> (B*G*G, 3, H, W). Note we must use repeat_interleave instead of repeat
+        x_repeat = torch.repeat_interleave(x, arch.G ** 2, dim=0)
+        
+        # (B*G*G, 3, H, W), where G is the grid size
+        # Extract glimpse
+        x_att = spatial_transform(x_repeat, z_where.view(B * arch.G ** 2, 4),
+                                  (B * arch.G ** 2, 3, arch.glimpse_size, arch.glimpse_size), inverse=False)
+        
+        # (B*G*G, D)
+        z_what, z_what_post = self.z_what_net(x_att)
+        
+        # Reshape z_what and z_what_post
+        # (B*G*G, D) -> (B, G*G, D)
+        z_what = z_what.view(B, arch.G ** 2, arch.z_what_dim)
+        z_what_post = Normal(*[x.view(B, arch.G ** 2, arch.z_what_dim)
+                               for x in [z_what_post.mean, z_what_post.stddev]])
+        
+        return z_pres, z_depth, z_scale, z_shift, z_where, z_what
 
 
 class ImgEncoderFg(nn.Module):

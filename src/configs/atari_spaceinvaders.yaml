@@ -6,18 +6,20 @@ parallel: false
 device_ids: [0, 1]
 device: 'cuda:0'
 logdir: '../output/logs'
-checkpointdir: '../output/checkpoints'
+checkpointdir: '/home/rasmus/DTU/VAE_RL/SPACE/output/checkpoints'
 evaldir: '../output/eval'
 
-dataset: 'ATARI'
+dataset: 'SpaceInvaders'
 dataset_roots:
   OBJ3D_SMALL: '../data/OBJ3D_SMALL'
   OBJ3D_LARGE: '../data/OBJ3D_LARGE'
-  ATARI: '../data/ATARI'
+  ATARI: '../data/asteroids-v0'
+  asteroids: '../data/asteroids-v0'
+  SpaceInvaders: '../data/SpaceInvaders-v0'
 
 
 train:
-  batch_size: 12
+  batch_size: 2
   max_epochs: 1000
   max_steps: 100000
   print_every: 500
@@ -33,6 +35,25 @@ train:
     bg:
       optim: 'Adam'
       lr: 1e-3
+
+eval:
+  checkpoint: 'best'
+  metric: ap_avg
+
+# For package eval
+eval_cfg:
+  train:
+    metrics: ['mse', 'ap']
+    num_samples:
+      mse: 100
+      ap: 500
+    batch_size: 12
+    num_workers: 4
+  test:
+    batch_size: 12
+    num_workers:
+      4
+
 
 arch:
   G: 16

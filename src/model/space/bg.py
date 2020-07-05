@@ -208,6 +208,142 @@ class SpaceBg(nn.Module):
         return new_masks
             
 
+        
+class SpaceBg_atari(nn.Module):
+    
+    def __init__(self):
+        nn.Module.__init__(self)
+        
+        self.image_enc = ImageEncoderBg()
+        
+        # Compute mask hidden states given image features
+        self.rnn_mask = nn.LSTMCell(arch.z_mask_dim + arch.img_enc_dim_bg, arch.rnn_mask_hidden_dim)
+        self.rnn_mask_h = nn.Parameter(torch.zeros(arch.rnn_mask_hidden_dim))
+        self.rnn_mask_c = nn.Parameter(torch.zeros(arch.rnn_mask_hidden_dim))
+        
+        # Dummy z_mask for first step of rnn_mask
+        self.z_mask_0 = nn.Parameter(torch.zeros(arch.z_mask_dim))
+        # Predict mask latent given h
+        self.predict_mask = PredictMask()
+        # Compute masks given mask latents
+        self.mask_decoder = MaskDecoder()
+        # Encode mask and image into component latents
+        self.comp_encoder = CompEncoder()
+        # Component decoder
+        if arch.K > 1:
+            self.comp_decoder = CompDecoder()
+        else:
+            self.comp_decoder = CompDecoderStrong()
+
+        # ==== Prior related ====
+        self.rnn_mask_prior = nn.LSTMCell(arch.z_mask_dim, arch.rnn_mask_prior_hidden_dim)
+        # Initial h and c
+        self.rnn_mask_h_prior = nn.Parameter(torch.zeros(arch.rnn_mask_prior_hidden_dim))
+        self.rnn_mask_c_prior = nn.Parameter(torch.zeros(arch.rnn_mask_prior_hidden_dim))
+        # Compute mask latents
+        self.predict_mask_prior = PredictMask()
+        # Compute component latents
+        self.predict_comp_prior = PredictComp()
+        # ==== Prior related ====
+
+        self.bg_sigma = arch.bg_sigma
+    
+    def anneal(self, global_step):
+        pass
+    
+    def forward(self, x, global_step):
+        """
+        Background inference backward pass
+        
+        :param x: shape (B, C, H, W)
+        :param global_step: global training step
+        :return:
+            bg_likelihood: (B, 3, H, W)
+            bg: (B, 3, H, W)
+            kl_bg: (B,)
+            log: a dictionary containing things for visualization
+        """
+        B = x.size(0)
+        
+        # (B, D)
+        x_enc = self.image_enc(x)
+        
+        # Mask and component latents over the K slots
+        masks = []
+        z_masks = []
+        # These two are Normal instances
+        z_mask_posteriors = []
+        z_comp_posteriors = []
+        
+        # Initialization: encode x and dummy z_mask_0
+        z_mask = self.z_mask_0.expand(B, arch.z_mask_dim)
+        h = self.rnn_mask_h.expand(B, arch.rnn_mask_hidden_dim)
+        c = self.rnn_mask_c.expand(B, arch.rnn_mask_hidden_dim)
+        
+        for i in range(arch.K):
+            # Encode x and z_{mask, 1:k}, (b, D)
+            rnn_input = torch.cat((z_mask, x_enc), dim=1)
+            (h, c) = self.rnn_mask(rnn_input, (h, c))
+            
+            # Predict next mask from x and z_{mask, 1:k-1}
+            z_mask_loc, z_mask_scale = self.predict_mask(h)
+            z_mask_post = Normal(z_mask_loc, z_mask_scale)
+            z_mask = z_mask_post.rsample()
+            z_masks.append(z_mask)
+            z_mask_posteriors.append(z_mask_post)
+            # Decode masks
+            mask = self.mask_decoder(z_mask)
+            masks.append(mask)
+        
+        # (B, K, 1, H, W), in range (0, 1)
+        masks = torch.stack(masks, dim=1)
+        K = masks.shape[1]
+        
+        # SBP to ensure they sum to 1
+        masks = self.SBP(masks)
+        # An alternative is to use softmax
+        # masks = F.softmax(masks, dim=1)
+        
+        B, K, _, H, W = masks.size()
+        
+        # Reshape (B, K, 1, H, W) -> (B*K, 1, H, W)
+        masks = masks.view(B * K, 1, H, W)
+        
+        # Concatenate images (B*K, 4, H, W)
+        comp_vae_input = torch.cat(((masks + 1e-5).log(), x[:, None].repeat(1, K, 1, 1, 1).view(B * K, 3, H, W)), dim=1)
+        
+        # Component latents, each (B*K, L)
+        z_comp_loc, z_comp_scale = self.comp_encoder(comp_vae_input)
+        z_comp_post = Normal(z_comp_loc, z_comp_scale)
+        z_comp = z_comp_post.rsample()
+        
+        z_comp = z_comp.reshape(B,K,-1)
+        return z_comp
+
+    @staticmethod
+    def SBP(masks):
+        """
+        Stick breaking process to produce masks
+        :param: masks (B, K, 1, H, W). In range (0, 1)
+        :return: (B, K, 1, H, W)
+        """
+        B, K, _, H, W = masks.size()
+    
+        # (B, 1, H, W)
+        remained = torch.ones_like(masks[:, 0])
+        # remained = torch.ones_like(masks[:, 0]) - fg_mask
+        new_masks = []
+        for k in range(K):
+            if k < K - 1:
+                mask = masks[:, k] * remained
+            else:
+                mask = remained
+            remained = remained - mask
+            new_masks.append(mask)
+    
+        new_masks = torch.stack(new_masks, dim=1)
+    
+        return new_masks
 
 class Flatten(nn.Module):
     def forward(self, x):

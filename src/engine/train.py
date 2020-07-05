@@ -64,7 +64,6 @@ def train(cfg):
     
         start = time.perf_counter()
         for i, data in enumerate(trainloader):
-        
             end = time.perf_counter()
             data_time = end - start
             start = end

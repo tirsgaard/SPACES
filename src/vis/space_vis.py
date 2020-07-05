@@ -31,6 +31,7 @@ class SpaceVis:
         fg_box = bbox_in_one(
             log.fg, log.z_pres, log.z_scale, log.z_shift
         )
+        print(log.fg.shape)
         # (B, 1, 3, H, W)
         imgs = log.imgs[:, None]
         fg = log.fg[:, None]

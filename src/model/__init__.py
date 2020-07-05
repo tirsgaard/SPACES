@@ -1,4 +1,5 @@
 from .space.space import Space
+from .space.space import Space_atari
 
 __all__ = ['get_model']
 
@@ -12,5 +13,8 @@ def get_model(cfg):
     model = None
     if cfg.model == 'SPACE':
         model = Space()
+        
+    if cfg.model == 'SPACE_atari':
+        model = Space_atari()
         
     return model
