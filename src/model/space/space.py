@@ -3,13 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from attrdict import AttrDict
 from .arch import arch
-<<<<<<< HEAD
 from .fg import SpaceFg, SpaceFg_atari
 from .bg import SpaceBg, SpaceBg_atari
-=======
 from .fg import SpaceFg
 from .bg import SpaceBg
->>>>>>> refs/remotes/origin/master
 
 
 class Space(nn.Module):
@@ -30,21 +27,12 @@ class Space(nn.Module):
             loss: a scalor. Note it will be better to return (B,)
             log: a dictionary for visualization
         """
-<<<<<<< HEAD
-=======
-        
->>>>>>> refs/remotes/origin/master
         # Background extraction
         # (B, 3, H, W), (B, 3, H, W), (B,)
         bg_likelihood, bg, kl_bg, log_bg = self.bg_module(x, global_step)
         
         # Foreground extraction
         fg_likelihood, fg, alpha_map, kl_fg, loss_boundary, log_fg = self.fg_module(x, global_step)
-<<<<<<< HEAD
-        
-=======
-
->>>>>>> refs/remotes/origin/master
         # Fix alpha trick
         if global_step and global_step < arch.fix_alpha_steps:
             alpha_map = torch.full_like(alpha_map, arch.fix_alpha_value)
@@ -80,7 +68,6 @@ class Space(nn.Module):
         log.update(log_bg)
         
         return loss, log
-<<<<<<< HEAD
 
     
 class Space_atari(nn.Module):
@@ -113,5 +100,3 @@ class Space_atari(nn.Module):
         z_comp = torch.transpose(z_comp, 1, 2).repeat(1,8,1) # A hack, should be improved
         combined_z = torch.cat((z_pres, z_depth, z_where, z_what, z_comp), dim=2)
         return combined_z
-=======
->>>>>>> refs/remotes/origin/master
