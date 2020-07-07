@@ -73,7 +73,6 @@ def custom_collate(batched_seq):
         batched_seq = torch.stack(batched_seq, 0, out = out)
     
     batched_seq = torch.squeeze(batched_seq,1)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     
-    return dataloader
+    return batched_seq
     
