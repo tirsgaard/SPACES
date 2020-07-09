@@ -25,7 +25,9 @@ def get_dataset(cfg, mode):
     elif cfg.dataset == 'Riverraid':
         return own_atari(cfg.dataset_roots.Riverraid, mode)
     elif cfg.dataset == 'Riverraid_seq':
-        return atari_from_numpy(cfg.dataset_roots.Riverraid_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
+        return atari_from_numpy(cfg.dataset_roots.Riverraid_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq,
+    elif cfg.dataset == 'MontezumaRevenge_seq':
+        return atari_from_numpy(cfg.dataset_roots.MontezumaRevenge_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
 
 def get_dataloader(cfg, mode):
     assert mode in ['train', 'val', 'test']
