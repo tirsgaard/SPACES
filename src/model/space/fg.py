@@ -351,8 +351,7 @@ class SpaceFg_atari(nn.Module):
         self.anneal(globel_step)
         
         # Everything is (B, G*G, D), where D varies
-        z_pres, z_depth, z_scale, z_shift, z_where, \
-        z_pres_logits, z_depth_post, z_scale_post, z_shift_post = self.img_encoder(x, self.tau)
+        Z_infer, z_where = self.img_encoder.inference(x, self.tau)
         
         # (B, 3, H, W) -> (B*G*G, 3, H, W). Note we must use repeat_interleave instead of repeat
         x_repeat = torch.repeat_interleave(x, arch.G ** 2, dim=0)
@@ -363,15 +362,12 @@ class SpaceFg_atari(nn.Module):
                                   (B * arch.G ** 2, 3, arch.glimpse_size, arch.glimpse_size), inverse=False)
         
         # (B*G*G, D)
-        z_what, z_what_post = self.z_what_net(x_att)
-        
+        Z_infer_what = self.z_what_net.inference(x_att)
+        Z_infer.update(Z_infer_what)
         # Reshape z_what and z_what_post
         # (B*G*G, D) -> (B, G*G, D)
-        z_what = z_what.view(B, arch.G ** 2, arch.z_what_dim)
-        z_what_post = Normal(*[x.view(B, arch.G ** 2, arch.z_what_dim)
-                               for x in [z_what_post.mean, z_what_post.stddev]])
         
-        return z_pres, z_depth, z_scale, z_shift, z_where, z_what
+        return Z_infer
 
 class ImgEncoderFg(nn.Module):
     """
@@ -538,6 +534,109 @@ class ImgEncoderFg(nn.Module):
         
         return z_pres, z_depth, z_scale, z_shift, z_where, \
                z_pres_logits, z_depth_post, z_scale_post, z_shift_post
+    
+    def inference(self, x, tau):
+        """
+        Given image, infer z_pres, z_depth, z_where
+
+        :param x: (B, 3, H, W)
+        :param tau: temperature for the relaxed bernoulli
+        :return
+            z_pres: (B, G*G, 1)
+            z_depth: (B, G*G, 1)
+            z_scale: (B, G*G, 2)
+            z_shift: (B, G*G, 2)
+            z_where: (B, G*G, 4)
+            z_pres_logits: (B, G*G, 1)
+            z_depth_post: Normal, (B, G*G, 1)
+            z_scale_post: Normal, (B, G*G, 2)
+            z_shift_post: Normal, (B, G*G, 2)
+        """
+        B = x.size(0)
+        
+        # (B, C, H, W)
+        img_enc = self.enc(x)
+        # (B, E, G, G)
+        lateral_enc = self.enc_lat(img_enc)
+        # (B, 2E, G, G) -> (B, 128, H, W)
+        cat_enc = self.enc_cat(torch.cat((img_enc, lateral_enc), dim=1))
+        
+        def reshape(*args):
+            """(B, D, G, G) -> (B, G*G, D)"""
+            out = []
+            for x in args:
+                B, D, G, G = x.size()
+                y = x.permute(0, 2, 3, 1).view(B, G * G, D)
+                out.append(y)
+            return out[0] if len(args) == 1 else out
+        
+        # Compute posteriors
+        
+        # (B, 1, G, G)
+        z_pres_logits = 8.8 * torch.tanh(self.z_pres_net(cat_enc))
+        # (B, 1, G, G) - > (B, G*G, 1)
+        z_pres_logits = reshape(z_pres_logits)
+        z_pres_post = NumericalRelaxedBernoulli(logits=z_pres_logits, temperature=tau)
+        # Unbounded
+        z_pres_y = z_pres_post.rsample()
+        # in (0, 1)
+        z_pres = torch.sigmoid(z_pres_y)
+        
+        # (B, 1, G, G)
+        z_depth_mean, z_depth_std = self.z_depth_net(cat_enc).chunk(2, 1)
+        # (B, 1, G, G) -> (B, G*G, 1)
+        z_depth_mean, z_depth_std = reshape(z_depth_mean, z_depth_std)
+        z_depth_std = F.softplus(z_depth_std)
+        z_depth_post = Normal(z_depth_mean, z_depth_std)
+        # (B, G*G, 1)
+        z_depth = z_depth_post.rsample()
+        
+        # (B, 2, G, G)
+        scale_std_bias = 1e-15
+        z_scale_mean, _z_scale_std = self.z_scale_net(cat_enc).chunk(2, 1)
+        z_scale_std = F.softplus(_z_scale_std) + scale_std_bias
+        # (B, 2, G, G) -> (B, G*G, 2)
+        z_scale_mean, z_scale_std = reshape(z_scale_mean, z_scale_std)
+        z_scale_post = Normal(z_scale_mean, z_scale_std)
+        z_scale = z_scale_post.rsample()
+        
+        # (B, 2, G, G)
+        z_shift_mean, z_shift_std = self.z_shift_net(cat_enc).chunk(2, 1)
+        z_shift_std = F.softplus(z_shift_std)
+        # (B, 2, G, G) -> (B, G*G, 2)
+        z_shift_mean, z_shift_std = reshape(z_shift_mean, z_shift_std)
+        z_shift_post = Normal(z_shift_mean, z_shift_std)
+        z_shift = z_shift_post.rsample()
+        
+        # scale: unbounded to (0, 1), (B, G*G, 2)
+        z_scale = z_scale.sigmoid()
+        # offset: (2, G, G) -> (G*G, 2)
+        offset = self.offset.permute(1, 2, 0).view(arch.G ** 2, 2)
+        # (B, G*G, 2) and (G*G, 2)
+        # where: (-1, 1)(local) -> add center points -> (0, 2) -> (-1, 1)
+        z_shift = (2.0 / arch.G) * (offset + 0.5 + z_shift.tanh()) - 1
+        
+        # (B, G*G, 4)
+        z_where = torch.cat((z_scale, z_shift), dim=-1)
+        
+        Z_infer = {"pres": z_pres_logits,
+                  "depth_mean" : z_depth_mean,
+                  #"depth_std" :  z_depth_std,
+                  "scale_mean" :  z_scale_mean,
+                  #"scale_std" :  z_scale_std,
+                  "shift_mean" :  z_shift_mean,
+                  #"shift_std" :  z_shift_std
+                  }
+        # Check dimensions
+        assert (
+                (z_pres.size() == (B, arch.G ** 2, 1)) and
+                (z_depth.size() == (B, arch.G ** 2, 1)) and
+                (z_shift.size() == (B, arch.G ** 2, 2)) and
+                (z_scale.size() == (B, arch.G ** 2, 2)) and
+                (z_where.size() == (B, arch.G ** 2, 4))
+        )
+        
+        return Z_infer, z_where
 
 
 class ZWhatEnc(nn.Module):
@@ -586,7 +685,25 @@ class ZWhatEnc(nn.Module):
         z_what = z_what_post.rsample()
         
         return z_what, z_what_post
+    
+    def inference(self, x):
+        """
+        Encode a (32, 32) glimpse into z_what
 
+        :param x: (B, C, H, W)
+        :return:
+            z_what: (B, D)
+            z_what_post: (B, D)
+        """
+        x = self.enc_cnn(x)
+        # (B, D), (B, D)
+        z_what_mean, z_what_std = self.enc_what(x.flatten(start_dim=1)).chunk(2, -1)
+        z_what_mean = z_what_mean.view(-1, 256, 32)
+        
+        Z_infer = {"what_mean" : z_what_mean}
+                   #,"what_std" : z_what_std.unsqueeze(0)}
+        
+        return Z_infer
 
 class GlimpseDec(nn.Module):
     """Decoder z_what into reconstructed objects"""

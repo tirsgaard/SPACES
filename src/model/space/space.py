@@ -91,12 +91,15 @@ class Space_atari(nn.Module):
         
         # Background extraction
         # (B, K, L)
-        z_comp = self.bg_module(x, global_step)
-        
+        z_mask_loc, z_mask_scale, z_comp_loc_reshape, z_comp_scale_reshape = self.bg_module(x, global_step)
         # Foreground extraction
-        z_pres, z_depth, z_scale, z_shift, z_where, z_what = self.fg_module(x, global_step)
+        Z_infer = self.fg_module(x, global_step)
         
         # Combine
-        z_comp = torch.transpose(z_comp, 1, 2).repeat(1,8,1) # A hack, should be improved
-        combined_z = torch.cat((z_pres, z_depth, z_where, z_what, z_comp), dim=2)
-        return combined_z
+        
+        background = torch.stack([z_mask_loc, z_mask_scale, z_comp_loc_reshape, z_comp_scale_reshape], dim = 0)
+        background = background.permute(1,2,0)
+        
+        Z_infer = torch.cat(list(Z_infer.values()),dim=2)
+        Z_infer = torch.cat([Z_infer, background], dim = 2)
+        return Z_infer
