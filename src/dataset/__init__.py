@@ -28,6 +28,13 @@ def get_dataset(cfg, mode):
         return atari_from_numpy(cfg.dataset_roots.Riverraid_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq),
     elif cfg.dataset == 'MontezumaRevenge_seq':
         return atari_from_numpy(cfg.dataset_roots.MontezumaRevenge_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
+    elif cfg.dataset == 'FishingDerby_seq':
+        return atari_from_numpy(cfg.dataset_roots.FishingDerby_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
+    elif cfg.dataset == 'SpaceInvaders_seq':
+        return atari_from_numpy(cfg.dataset_roots.SpaceInvaders_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
+    elif cfg.dataset == 'Seaquest_seq':
+        return atari_from_numpy(cfg.dataset_roots.Seaquest_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
+
 
 def get_dataloader(cfg, mode):
     assert mode in ['train', 'val', 'test']

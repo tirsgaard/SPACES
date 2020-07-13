@@ -33,6 +33,9 @@ cfg = CfgNode({
         'Riverraid': '../data/riverraid-v0',
         'Riverraid_seq': '../data/Riverraid_seq',
         'MontezumaRevenge_seq': '../data/MontezumaRevenge_seq',
+        'FishingDerby_seq': '../data/FishingDerby_seq',
+        'Seaquest_seq': '../data/Seaquest_seq',
+        'SpaceInvaders_seq': '../data/SpaceInvaders_seq',
     },
     
     # For Atari

@@ -16,10 +16,13 @@ dataset_roots:
   ATARI: '../data/ATARI'
   Riverraid_seq: '../data/Riverraid_seq'
   MontezumaRevenge_seq: '../data/MontezumaRevenge_seq'
-
+  Seaquest_seq: '../data/Seaquest_seq'
+  SpaceInvaders_seq: '../data/SpaceInvaders_seq'
+  FishingDerby_seq: '../data/FishingDerby_seq'
+  Riverraid_seq: '../data/Riverraid_seq'
 
 train:
-  batch_size: 24
+  batch_size: 15
   start_seq_length: 1
   end_seq_length: 1
   increase_seq: 5000 # Number of steps between 

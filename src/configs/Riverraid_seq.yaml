@@ -18,7 +18,7 @@ dataset_roots:
 
 
 train:
-  batch_size: 2
+  batch_size: 4
   start_seq_length: 1
   end_seq_length: 1
   increase_seq: 5000 # Number of steps between 
