@@ -65,7 +65,7 @@ class atari_from_numpy(Dataset):
         img_tensors = []
         for i in range(imgs.shape[0]):
             img_tensors.append(self.transform(imgs[i]))
-        imgs = torch.stack(img_tensors, 0)/255
+        imgs = torch.stack(img_tensors, 0)
         return imgs
     
     def check_seq_len(self):

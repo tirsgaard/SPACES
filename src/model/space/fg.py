@@ -368,6 +368,178 @@ class SpaceFg_atari(nn.Module):
         # (B*G*G, D) -> (B, G*G, D)
         
         return Z_infer
+    
+    def eval_perform(self, x, globel_step):
+        """
+        Forward pass
+
+        :param x: (B, 3, H, W)
+        :param globel_step: global step (training)
+        :return:
+            fg_likelihood: (B, 3, H, W)
+            y_nobg: (B, 3, H, W), foreground reconstruction
+            alpha_map: (B, 1, H, W)
+            kl: (B,) total foreground kl
+            boundary_loss: (B,)
+            log: a dictionary containing anything we need for visualization
+        """
+        B = x.size(0)
+        # if globel_step:
+        self.anneal(globel_step)
+        
+        # Everything is (B, G*G, D), where D varies
+        z_pres, z_depth, z_scale, z_shift, z_where, \
+        z_pres_logits, z_depth_post, z_scale_post, z_shift_post = self.img_encoder(x, self.tau)
+        
+        # (B, 3, H, W) -> (B*G*G, 3, H, W). Note we must use repeat_interleave instead of repeat
+        x_repeat = torch.repeat_interleave(x, arch.G ** 2, dim=0)
+        
+        # (B*G*G, 3, H, W), where G is the grid size
+        # Extract glimpse
+        x_att = spatial_transform(x_repeat, z_where.view(B * arch.G ** 2, 4),
+                                  (B * arch.G ** 2, 3, arch.glimpse_size, arch.glimpse_size), inverse=False)
+        
+        # (B*G*G, D)
+        z_what, z_what_post = self.z_what_net(x_att)
+        # Decode z_what into small reconstructed glimpses
+        # All (B*G*G, 3, H, W)
+        o_att, alpha_att = self.glimpse_dec(z_what)
+        # z_pres: (B, G*G, 1) -> (B*G*G, 1, 1, 1)
+        alpha_att_hat = alpha_att * z_pres.view(-1, 1, 1, 1)
+        # (B*G*G, 3, H, W)
+        y_att = alpha_att_hat * o_att
+        
+        # Compute pixel-wise object weights
+        # (B*G*G, 1, H, W). These are glimpse size
+        importance_map = alpha_att_hat * 100.0 * torch.sigmoid(-z_depth.view(B*arch.G**2, 1, 1, 1))
+        # (B*G*G, 1, H, W). These are of full resolution
+        importance_map_full_res = spatial_transform(importance_map, z_where.view(B * arch.G ** 2, 4), (B*arch.G**2, 1, *arch.img_shape),
+                                                    inverse=True)
+        
+        # (B*G*G, 1, H, W) -> (B, G*G, 1, H, W)
+        importance_map_full_res = importance_map_full_res.view(B, arch.G ** 2, 1, *arch.img_shape)
+        # Normalize (B, >G*G<, 1, H, W)
+        importance_map_full_res_norm = torch.softmax(importance_map_full_res, dim=1)
+        
+        # To full resolution
+        # (B*G*G, 3, H, W) -> (B, G*G, 3, H, W)
+        y_each_cell = spatial_transform(y_att, z_where.view(B * arch.G ** 2, 4), (B * arch.G ** 2, 3, *arch.img_shape),
+                                        inverse=True).view(B, arch.G ** 2, 3, *arch.img_shape)
+        # Weighted sum, (B, 3, H, W)
+        y_nobg = (y_each_cell * importance_map_full_res_norm).sum(dim=1)
+        
+        # To full resolution
+        # (B*G*G, 1, H, W) -> (B, G*G, 1, H, W)
+        alpha_map = spatial_transform(alpha_att_hat, z_where.view(B * arch.G ** 2, 4), (B * arch.G ** 2, 1, *arch.img_shape),
+                                      inverse=True).view(B, arch.G ** 2, 1, *arch.img_shape)
+        
+        # Weighted sum, (B, 1, H, W)
+        alpha_map = (alpha_map * importance_map_full_res_norm).sum(dim=1)
+        
+        # Everything is computed. Now let's compute loss
+        # Compute KL divergences
+        # (B, G*G, 1)
+        kl_z_pres = kl_divergence_bern_bern(z_pres_logits, self.prior_z_pres_prob)
+        
+        # (B, G*G, 1)
+        kl_z_depth = kl_divergence(z_depth_post, self.z_depth_prior)
+        
+        # (B, G*G, 2)
+        kl_z_scale = kl_divergence(z_scale_post, self.z_scale_prior)
+        kl_z_shift = kl_divergence(z_shift_post, self.z_shift_prior)
+        
+        # Reshape z_what and z_what_post
+        # (B*G*G, D) -> (B, G*G, D)
+        z_what = z_what.view(B, arch.G ** 2, arch.z_what_dim)
+        z_what_post = Normal(*[x.view(B, arch.G ** 2, arch.z_what_dim)
+                               for x in [z_what_post.mean, z_what_post.stddev]])
+        # (B, G*G, D)
+        kl_z_what = kl_divergence(z_what_post, self.z_what_prior)
+        
+        # dimensionality check
+        assert ((kl_z_pres.size() == (B, arch.G ** 2, 1)) and
+                (kl_z_depth.size() == (B, arch.G ** 2, 1)) and
+                (kl_z_scale.size() == (B, arch.G ** 2, 2)) and
+                (kl_z_shift.size() == (B, arch.G ** 2, 2)) and
+                (kl_z_what.size() == (B, arch.G ** 2, arch.z_what_dim))
+                )
+        
+        # Reduce (B, G*G, D) -> (B,)
+        kl_z_pres, kl_z_depth, kl_z_scale, kl_z_shift, kl_z_what = [
+            x.flatten(start_dim=1).sum(1) for x in [kl_z_pres, kl_z_depth, kl_z_scale, kl_z_shift, kl_z_what]
+        ]
+        # (B,)
+        kl_z_where = kl_z_scale + kl_z_shift
+        
+        # Compute boundary loss
+        # (1, 1, K, K)
+        boundary_kernel = self.boundary_kernel[None, None].to(x.device)
+        # (1, 1, K, K) * (B*G*G, 1, 1) -> (B*G*G, 1, K, K)
+        boundary_kernel = boundary_kernel * z_pres.view(B * arch.G ** 2, 1, 1, 1)
+        # (B, G*G, 1, H, W), to full resolution
+        boundary_map = spatial_transform(boundary_kernel, z_where.view(B * arch.G ** 2, 4), (B * arch.G ** 2, 1, *arch.img_shape),
+                                         inverse=True).view(B, arch.G ** 2, 1, *arch.img_shape)
+        # (B, 1, H, W)
+        boundary_map = boundary_map.sum(dim=1)
+        # TODO: some magic number. For reproducibility I will keep it
+        boundary_map = boundary_map * 1000
+        # (B, 1, H, W) * (B, 1, H, W)
+        overlap = boundary_map * alpha_map
+        # TODO: another magic number. For reproducibility I will keep it
+        p_boundary = Normal(0, 0.7)
+        # (B, 1, H, W)
+        boundary_loss = p_boundary.log_prob(overlap)
+        # (B,)
+        boundary_loss = boundary_loss.flatten(start_dim=1).sum(1)
+        
+        # NOTE: we want to minimize this
+        boundary_loss = -boundary_loss
+        
+        # Compute foreground likelhood
+        fg_dist = Normal(y_nobg, self.fg_sigma)
+        fg_likelihood = fg_dist.log_prob(x)
+        
+        kl = kl_z_what + kl_z_where + kl_z_pres + kl_z_depth
+        
+        if not arch.boundary_loss or globel_step > arch.bl_off_step:
+            boundary_loss = boundary_loss * 0.0
+        
+        # For visualizating
+        # Dimensionality check
+        assert (
+            (z_pres.size() == (B, arch.G**2, 1)) and
+            (z_depth.size() == (B, arch.G**2, 1)) and
+            (z_scale.size() == (B, arch.G**2, 2)) and
+            (z_shift.size() == (B, arch.G**2, 2)) and
+            (z_where.size() == (B, arch.G**2, 4)) and
+            (z_what.size() == (B, arch.G**2, arch.z_what_dim))
+        )
+        log = {
+            'fg': y_nobg,
+            'z_what': z_what,
+            'z_where': z_where,
+            'z_pres': z_pres,
+            'z_scale': z_scale,
+            'z_shift': z_shift,
+            'z_depth': z_depth,
+            'z_pres_prob': torch.sigmoid(z_pres_logits),
+            'prior_z_pres_prob': self.prior_z_pres_prob.unsqueeze(0),
+            'o_att': o_att,
+            'alpha_att_hat': alpha_att_hat,
+            'alpha_att': alpha_att,
+            'alpha_map': alpha_map,
+            'boundary_loss': boundary_loss,
+            'boundary_map': boundary_map,
+            'importance_map_full_res_norm': importance_map_full_res_norm,
+            
+            'kl_z_what': kl_z_what,
+            'kl_z_pres': kl_z_pres,
+            'kl_z_scale': kl_z_scale,
+            'kl_z_shift': kl_z_shift,
+            'kl_z_depth': kl_z_depth,
+            'kl_z_where': kl_z_where,
+        }
+        return fg_likelihood, y_nobg, alpha_map, kl, boundary_loss, log
 
 class ImgEncoderFg(nn.Module):
     """

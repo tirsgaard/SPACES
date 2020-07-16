@@ -330,6 +330,139 @@ class SpaceBg_atari(nn.Module):
         z_comp_scale_reshape = self.rescale_inference(z_comp_scale_reshape) # should be (B,256)
         
         return z_masks_loc, z_masks_scale, z_comp_loc_reshape, z_comp_scale_reshape
+    
+    def eval_perform(self, x, global_step):
+        """
+        Background inference backward pass
+        
+        :param x: shape (B, C, H, W)
+        :param global_step: global training step
+        :return:
+            bg_likelihood: (B, 3, H, W)
+            bg: (B, 3, H, W)
+            kl_bg: (B,)
+            log: a dictionary containing things for visualization
+        """
+        B = x.size(0)
+        
+        # (B, D)
+        x_enc = self.image_enc(x)
+        
+        # Mask and component latents over the K slots
+        masks = []
+        z_masks = []
+        # These two are Normal instances
+        z_mask_posteriors = []
+        z_comp_posteriors = []
+        
+        # Initialization: encode x and dummy z_mask_0
+        z_mask = self.z_mask_0.expand(B, arch.z_mask_dim)
+        h = self.rnn_mask_h.expand(B, arch.rnn_mask_hidden_dim)
+        c = self.rnn_mask_c.expand(B, arch.rnn_mask_hidden_dim)
+        
+        for i in range(arch.K):
+            # Encode x and z_{mask, 1:k}, (b, D)
+            rnn_input = torch.cat((z_mask, x_enc), dim=1)
+            (h, c) = self.rnn_mask(rnn_input, (h, c))
+            
+            # Predict next mask from x and z_{mask, 1:k-1}
+            z_mask_loc, z_mask_scale = self.predict_mask(h)
+            z_mask_post = Normal(z_mask_loc, z_mask_scale)
+            z_mask = z_mask_post.rsample()
+            z_masks.append(z_mask)
+            z_mask_posteriors.append(z_mask_post)
+            # Decode masks
+            mask = self.mask_decoder(z_mask)
+            masks.append(mask)
+        
+        # (B, K, 1, H, W), in range (0, 1)
+        masks = torch.stack(masks, dim=1)
+        
+        # SBP to ensure they sum to 1
+        masks = self.SBP(masks)
+        # An alternative is to use softmax
+        # masks = F.softmax(masks, dim=1)
+        
+        B, K, _, H, W = masks.size()
+        
+        # Reshape (B, K, 1, H, W) -> (B*K, 1, H, W)
+        masks = masks.view(B * K, 1, H, W)
+        
+        # Concatenate images (B*K, 4, H, W)
+        comp_vae_input = torch.cat(((masks + 1e-5).log(), x[:, None].repeat(1, K, 1, 1, 1).view(B * K, 3, H, W)), dim=1)
+        
+        # Component latents, each (B*K, L)
+        z_comp_loc, z_comp_scale = self.comp_encoder(comp_vae_input)
+        z_comp_post = Normal(z_comp_loc, z_comp_scale)
+        z_comp = z_comp_post.rsample()
+        
+        # Record component posteriors here. We will use this for computing KL
+        z_comp_loc_reshape = z_comp_loc.view(B, K, -1)
+        z_comp_scale_reshape = z_comp_scale.view(B, K, -1)
+        for i in range(arch.K):
+            z_comp_post_this = Normal(z_comp_loc_reshape[:, i], z_comp_scale_reshape[:, i])
+            z_comp_posteriors.append(z_comp_post_this)
+        
+        # Decode into component images, (B*K, 3, H, W)
+        comps = self.comp_decoder(z_comp)
+        
+        # Reshape (B*K, ...) -> (B, K, 3, H, W)
+        comps = comps.view(B, K, 3, H, W)
+        masks = masks.view(B, K, 1, H, W)
+        
+        # Now we are ready to compute the background likelihoods
+        # (B, K, 3, H, W)
+        comp_dist = Normal(comps, torch.full_like(comps, self.bg_sigma))
+        log_likelihoods = comp_dist.log_prob(x[:, None].expand_as(comps))
+        
+        # (B, K, 3, H, W) -> (B, 3, H, W), mixture likelihood
+        log_sum = log_likelihoods + (masks + 1e-5).log()
+        bg_likelihood = torch.logsumexp(log_sum, dim=1)
+
+        # Background reconstruction
+        bg = (comps * masks).sum(dim=1)
+        
+        # Below we compute priors and kls
+        
+        # Conditional KLs
+        z_mask_total_kl = 0.0
+        z_comp_total_kl = 0.0
+        
+        # Initial h and c. This is h_1 and c_1 in the paper
+        h = self.rnn_mask_h_prior.expand(B, arch.rnn_mask_prior_hidden_dim)
+        c = self.rnn_mask_c_prior.expand(B, arch.rnn_mask_prior_hidden_dim)
+        
+        for i in range(arch.K):
+            # Compute prior distribution over z_masks
+            z_mask_loc_prior, z_mask_scale_prior = self.predict_mask_prior(h)
+            z_mask_prior = Normal(z_mask_loc_prior, z_mask_scale_prior)
+            # Compute component prior, using posterior samples
+            z_comp_loc_prior, z_comp_scale_prior = self.predict_comp_prior(z_masks[i])
+            z_comp_prior = Normal(z_comp_loc_prior, z_comp_scale_prior)
+            # Compute KLs as we go.
+            z_mask_kl = kl_divergence(z_mask_posteriors[i], z_mask_prior).sum(dim=1)
+            z_comp_kl = kl_divergence(z_comp_posteriors[i], z_comp_prior).sum(dim=1)
+            # (B,)
+            z_mask_total_kl += z_mask_kl
+            z_comp_total_kl += z_comp_kl
+            
+            # Compute next state. Note we condition we posterior samples.
+            # Again, this is conditional prior.
+            (h, c) = self.rnn_mask_prior(z_masks[i], (h, c))
+            
+        # For visualization
+        kl_bg = z_mask_total_kl + z_comp_total_kl
+        log = {
+            # (B, K, 3, H, W)
+            'comps': comps,
+            # (B, 1, 3, H, W)
+            'masks': masks,
+            # (B, 3, H, W)
+            'bg': bg,
+            'kl_bg': kl_bg
+        }
+        
+        return bg_likelihood, bg, kl_bg, log
 
     @staticmethod
     def SBP(masks):

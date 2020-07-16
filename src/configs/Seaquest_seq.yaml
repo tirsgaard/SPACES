@@ -9,7 +9,7 @@ logdir: '../output/logs'
 checkpointdir: '../output/checkpoints'
 evaldir: '../output/eval'
 
-dataset: 'MontezumaRevenge_seq'
+dataset: 'Seaquest_seq'
 dataset_roots:
   OBJ3D_SMALL: '../data/OBJ3D_SMALL'
   OBJ3D_LARGE: '../data/OBJ3D_LARGE'
@@ -21,8 +21,9 @@ dataset_roots:
   FishingDerby_seq: '../data/FishingDerby_seq'
   Riverraid_seq: '../data/Riverraid_seq'
 
+
 train:
-  batch_size: 10
+  batch_size: 15
   start_seq_length: 1
   end_seq_length: 1
   increase_seq: 5000 # Number of steps between 

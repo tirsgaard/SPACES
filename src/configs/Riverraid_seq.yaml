@@ -14,11 +14,14 @@ dataset_roots:
   OBJ3D_SMALL: '../data/OBJ3D_SMALL'
   OBJ3D_LARGE: '../data/OBJ3D_LARGE'
   ATARI: '../data/ATARI'
+  MontezumaRevenge_seq: '../data/MontezumaRevenge_seq'
+  Seaquest_seq: '../data/Seaquest_seq'
+  SpaceInvaders_seq: '../data/SpaceInvaders_seq'
+  FishingDerby_seq: '../data/FishingDerby_seq'
   Riverraid_seq: '../data/Riverraid_seq'
 
-
 train:
-  batch_size: 4
+  batch_size: 10
   start_seq_length: 1
   end_seq_length: 1
   increase_seq: 5000 # Number of steps between 
@@ -42,21 +45,20 @@ arch:
   G: 16
   fg_sigma: 0.20
 
-  z_pres_start_step: 4000
-  z_pres_end_step: 10000
+  z_pres_start_step: 10000
+  z_pres_end_step: 15000
   z_pres_start_value: 0.1
-  z_pres_end_value: 0.01
+  z_pres_end_value: 1e-10
 
   z_scale_mean_start_step: 0
   z_scale_mean_end_step: 20000
-  z_scale_mean_start_value: -2.2
+  z_scale_mean_start_value: -2.0
   z_scale_mean_end_value: -2.5
-  z_scale_std_value: 0.2
 
   tau_start_step: 0
-  tau_end_step: 20000
+  tau_end_step: 10000
   tau_start_value: 2.5
-  tau_end_value: 0.1
+  tau_end_value: 2.5
   
   fix_alpha_steps: 2000
   fix_alpha_value: 0.2

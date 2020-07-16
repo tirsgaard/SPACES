@@ -25,7 +25,7 @@ def get_dataset(cfg, mode):
     elif cfg.dataset == 'Riverraid':
         return own_atari(cfg.dataset_roots.Riverraid, mode)
     elif cfg.dataset == 'Riverraid_seq':
-        return atari_from_numpy(cfg.dataset_roots.Riverraid_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq),
+        return atari_from_numpy(cfg.dataset_roots.Riverraid_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
     elif cfg.dataset == 'MontezumaRevenge_seq':
         return atari_from_numpy(cfg.dataset_roots.MontezumaRevenge_seq, mode, cfg.train.start_seq_length, cfg.train.end_seq_length, cfg.train.increase_seq)
     elif cfg.dataset == 'FishingDerby_seq':
@@ -73,7 +73,7 @@ def custom_collate(batched_seq):
             return custom_collate([torch.as_tensor(b) for b in batch])
     
     try:
-        batched_seq = torch.stack(batched_seq, 0, out = out)
+        batched_seq = torch.stack(batched_seq, 0)
     except:
         # This is the case of different sequence lengths
         # We will just cut the sequences to have the same length as the shortest
